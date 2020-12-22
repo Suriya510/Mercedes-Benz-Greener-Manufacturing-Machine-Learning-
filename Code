@@ -1,0 +1,127 @@
+# Mercedes-Benz Greener Manufacturing
+#import libraries
+import pandas as pd
+import numpy as np
+
+#Reading the dataset in a dataframe using Pandas
+train=pd.read_csv(r'train.csv')
+test=pd.read_csv(r'test.csv')
+
+print(train.shape)
+print(test.shape)
+
+y_train = train['y'].values
+id_test = test['ID'].values
+
+
+## remove columns ID and Y from the data as they are not used for learning
+new_columns = list(set(train.columns) - set(['ID', 'y']))
+train_01 = train[new_columns]
+test_01 = test[new_columns]
+
+print(train_01.shape)
+print(test_01.shape)
+
+#If for any column(s), the variance is equal to zero, then you need to remove those variable(s).
+
+#calculating the variance on training & testing dataset and output transfrom into Dataframe
+#train
+train_df=train_01.var(axis=0)
+df_train = pd.DataFrame(train_df).reset_index()
+df_train.columns = ['id', 'value']
+#test
+test_df=test_01.var(axis=0)
+df_test = pd.DataFrame(test_df).reset_index()
+df_test.columns = ['id', 'value']
+
+df_train["Var"] = np.where(df_train["value"] == 0,"yes","no")
+df_test["Var"] = np.where(df_test["value"] == 0,"yes","no")
+
+df_train[df_train["Var"]== 'yes']
+
+#Droping the Zero variance column from Train
+x_train=train_01.drop(['X11','X93','X107','X233','X235','X268','X289','X290','X293','X297','X330','X347'],axis=1)
+
+df_test[df_test["Var"]== 'yes']
+
+#Droping the Zero variance column from Test
+x_test=test_01.drop(['X257','X258','X295','X296','X369'],axis=1)
+
+
+print(x_train.shape)
+print(x_test.shape)
+
+##Check for null and unique values for test and train sets.
+# ckecking null values for test and train sets
+def check_missing_values(df):
+    if df.isnull().any().any():
+        print("There are missing values in the dataframe")
+    else:
+        print("There are no missing values in the dataframe")
+
+check_missing_values(x_train)
+check_missing_values(x_test)
+
+# checking unique values for test and train sets
+unique_value_train = x_train.nunique()
+print(unique_value_train)
+unique_value_test = x_test.nunique()
+print(unique_value_test)
+
+
+##Apply label encoder.
+
+#Converting lable column
+from sklearn.preprocessing import LabelEncoder
+from collections import defaultdict
+d = defaultdict(LabelEncoder)
+
+fit_train = x_train.apply(lambda x: d[x.name].fit_transform(x))
+fit_test  = x_test.apply(lambda x: d[x.name].fit_transform(x))
+
+fit_train[['X0','X1','X2','X3','X4','X5','X6','X8']].head()
+
+##Perform dimensionality reduction.
+
+# Scale the data to be between -1 and 1
+from sklearn.preprocessing import StandardScaler 
+sc = StandardScaler()
+X_train = sc.fit_transform(fit_train)
+X_test = sc.fit_transform(fit_test)
+
+from sklearn.decomposition import PCA 
+pca = PCA(n_components=12, random_state=21)
+X_train_pca = pca.fit_transform(X_train)
+X_test_pca = pca.fit_transform(X_test)
+
+
+#Predict your test_df values using XGBoost.
+
+import xgboost as xgb
+from sklearn.model_selection import train_test_split
+x_train, x_new, y_train, y_new = train_test_split(
+        X_train_pca, 
+        y_train, test_size=0.2, 
+        random_state=21)
+
+#change the data to a Dmatrix 
+D_train  = xgb.DMatrix(x_train, label = y_train)
+D_new = xgb. DMatrix(x_new,label = y_new)
+D_test = xgb.DMatrix(X_test_pca)
+
+param = {
+       'eta' : 0.3,
+    'max_depth' : 4,
+    'objective': 'reg:linear',
+}
+
+watchlist = [(D_train, 'train'), (D_new, 'new')]
+
+model = xgb.train(param, D_train, 
+                20, watchlist, maximize=True, verbose_eval=10)
+
+y_pred = model.predict(D_test)
+pred = pd.DataFrame()
+pred['ID'] = id_test
+pred['y'] = y_pred
+pred.head()
